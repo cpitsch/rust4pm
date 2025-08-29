@@ -41,7 +41,7 @@ pub enum Declare {
     // Forward-unidirectional relation templates
     /// "if x occurs, then y occurs too"
     // LTL:  `□(x → ◇y ∨ ♦y)`
-    /// Regex: `[^x]*((x.*y.*) | (y.*x.*))*[^x]*`
+    /// Regex: `[^x]*((x.*y.*)|(y.*x.*))*[^x]*`
     RespondedExistence(String, String),
     /// "if x occurs, then y occurs after x"
     /// LTL: `□(x → ◇y)`
@@ -72,7 +72,7 @@ pub enum Declare {
 
     // Coupling Templates
     /// "x occurs iff. y occurs"
-    /// Regex: `[^xy]*((x.*y.*) | (y.*x.*))*[^xy]*`
+    /// Regex: `[^xy]*((x.*y.*)|(y.*x.*))*[^xy]*`
     CoExistence(String, String),
     /// "x occurs iff. it is followed by y"
     /// Regex: `[^xy]*(x.*y)*[^xy]*`
@@ -92,7 +92,7 @@ pub enum Declare {
     /// Regex: `[^x]*(x[^y]*)*[^xy]`
     NotSuccession(String, String),
     /// "x and y never co-occur"
-    /// Regex: `[^xy]*((x[^y]*) | (y[^x]*))?`
+    /// Regex: `[^xy]*((x[^y]*)|(y[^x]*))?`
     NotCoExistence(String, String),
 }
 
