@@ -449,7 +449,7 @@ mod tests {
                 last_eventually_follows: HashMap::from([
                     (
                         "a".to_string(),
-                        HashSet::from(["b".to_string(), "c".to_string()])
+                        HashSet::from(["b".to_string(), "c".to_string()]),
                     ),
                     ("b".to_string(), HashSet::from(["c".to_string()])),
                     ("c".to_string(), HashSet::new()),
@@ -459,15 +459,21 @@ mod tests {
                     ("b".to_string(), HashSet::from(["a".to_string()])),
                     (
                         "c".to_string(),
-                        HashSet::from(["a".to_string(), "b".to_string()])
+                        HashSet::from(["a".to_string(), "b".to_string()]),
                     ),
                 ]),
                 directly_follows: HashMap::from([
                     ("a".to_string(), HashSet::from(["b".to_string()])),
                     ("b".to_string(), HashSet::from(["c".to_string()])),
                 ]),
-                // No reoccurences in this trace
-                activities_before_reoccurrence: HashMap::new(),
+                activities_before_reoccurrence: HashMap::from([
+                    (
+                        "a".to_string(),
+                        vec![HashSet::from(["b".to_string(), "c".to_string()])],
+                    ),
+                    ("b".to_string(), vec![HashSet::from(["c".to_string()])]),
+                    ("c".to_string(), vec![HashSet::new()]),
+                ]),
                 first_activity: Some("a".to_string()),
                 last_activity: Some("c".to_string()),
             }
