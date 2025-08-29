@@ -73,6 +73,9 @@ pub mod petri_net {
     pub use petri_net_struct::PetriNet;
 }
 
+/// Declare constraints
+pub mod declare;
+
 ///
 /// Process trees
 ///
