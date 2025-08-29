@@ -105,7 +105,7 @@ pub struct IntermediateKnowledge {
     /// The activities that occurred at least once in the trace. Implied by `activity_counts`,
     /// but used to avoid recomputation for each insert into `first_eventually_precedes`
     seen_activities: HashSet<String>,
-    eventually_follows: HashSet<(String, String)>,
+    eventually_follows: HashMap<String, Vec<String>>,
     /// The activities that eventually follow the _last_ occurrence of each activity.
     /// For example, for <a,b,a,c>, only c is recorded for a.
     /// In particular, every activity in here eventually follows every occurrence
@@ -206,7 +206,9 @@ impl IntermediateKnowledge {
                 if *count > 0 {
                     knowledge
                         .eventually_follows
-                        .insert((k.clone(), act.clone()));
+                        .entry(k.clone())
+                        .or_default()
+                        .push(act.clone());
                 }
             });
 
@@ -243,7 +245,6 @@ impl Declare {
     /// The following Declare templates in [`Declare`] are missing:
     ///
     /// - [`AlternatePrecedence`]
-    /// - [`Succession`]
     /// - [`AlternateSuccession`]
     /// - [`ChainSuccession`]
     /// - [`NotChainSuccession`]
@@ -251,7 +252,6 @@ impl Declare {
     /// - [`NotCoExistence`]
     ///
     /// [`AlternatePrecedence`]: Declare::AlternatePrecedence
-    /// [`Succession`]: Declare::Succession
     /// [`AlternateSuccession`]: Declare::AlternateSuccession
     /// [`ChainSuccession`]: Declare::ChainSuccession
     /// [`NotChainSuccession`]: Declare::NotChainSuccession
@@ -294,6 +294,23 @@ impl Declare {
                 ]
             })
         }));
+
+        constraints.extend(
+            knowledge
+                .eventually_follows
+                .iter()
+                .flat_map(|(a, followers)| {
+                    let occurred_before = knowledge
+                        .first_eventually_precedes
+                        .get(a)
+                        .expect("Activity a occurred");
+
+                    followers
+                        .iter()
+                        .filter(|follower| !occurred_before.contains(*follower))
+                        .map(|b| Self::Succession(a.clone(), b.clone()))
+                }),
+        );
 
         // Only the activities that eventually follow the last occurrence eventually
         // follow every occurrence
@@ -372,13 +389,19 @@ impl Declare {
                 all_activities.iter().flat_map(|b| {
                     // If a doesn't occur, then these statements trivially hold.
                     // RespondedExistence also holds if both activities are _not_ in the trace.
-                    [
+                    let constraints = [
                         Self::RespondedExistence(a.clone(), b.clone()),
                         Self::Response(a.clone(), b.clone()),
                         Self::AlternateResponse(a.clone(), b.clone()),
                         Self::ChainResponse(a.clone(), b.clone()),
                         Self::Precedence(b.clone(), a.clone()),
-                    ]
+                    ];
+
+                    // Succession only _trivially_ holds if both activities didn't occur
+                    let succession = (!knowledge.seen_activities.contains(b))
+                        .then(|| Self::Succession(a.clone(), b.clone()));
+
+                    constraints.into_iter().chain(succession)
                 })
             }));
         }
@@ -418,10 +441,9 @@ mod tests {
                     ("d".to_string(), 0),
                 ]),
                 seen_activities: HashSet::from(["a".to_string(), "b".to_string(), "c".to_string()]),
-                eventually_follows: HashSet::from([
-                    ("a".to_string(), "b".to_string()),
-                    ("a".to_string(), "c".to_string()),
-                    ("b".to_string(), "c".to_string()),
+                eventually_follows: HashMap::from([
+                    ("a".to_string(), vec!["b".to_string(), "c".to_string()]),
+                    ("b".to_string(), vec!["c".to_string()]),
                 ]),
                 // Not interesting since everything occurs only once
                 last_eventually_follows: HashMap::from([
@@ -963,46 +985,49 @@ mod tests {
         });
     }
 
-    // #[test]
-    // fn test_declare_succession() {
-    //     let all_activities =
-    //         HashSet::from([String::from("a"), String::from("b"), String::from("c")]);
-    //     let positive_examples = [
-    //         vec![
-    //             String::from("c"),
-    //             String::from("a"),
-    //             String::from("c"),
-    //             String::from("b"),
-    //             String::from("b"),
-    //         ],
-    //         vec![String::from("c"), String::from("c"), String::from("c")],
-    //     ];
-    //     let negative_examples = [
-    //         vec![
-    //             String::from("c"),
-    //             String::from("a"),
-    //             String::from("c"),
-    //             String::from("b"),
-    //         ],
-    //         vec![
-    //             String::from("c"),
-    //             String::from("b"),
-    //             String::from("a"),
-    //             String::from("c"),
-    //         ],
-    //     ];
-    //
-    //     positive_examples.into_iter().for_each(|trace| {
-    //         assert!(Declare::mine_trace(&trace, &all_activities, Some(true))
-    //             .iter()
-    //             .contains(&Declare::Succession(String::from("a"), String::from("b"))))
-    //     });
-    //     negative_examples.into_iter().for_each(|trace| {
-    //         assert!(!Declare::mine_trace(&trace, &all_activities, Some(true))
-    //             .iter()
-    //             .contains(&Declare::Succession(String::from("a"), String::from("b"))))
-    //     });
-    // }
+    #[test]
+    fn test_declare_succession() {
+        let all_activities =
+            HashSet::from([String::from("a"), String::from("b"), String::from("c")]);
+        let positive_examples = [
+            vec![
+                String::from("c"),
+                String::from("a"),
+                String::from("c"),
+                String::from("b"),
+                String::from("b"),
+            ],
+            vec![
+                String::from("a"),
+                String::from("c"),
+                String::from("c"),
+                String::from("b"),
+            ],
+            // Copied from the ChainSuccession test, but this is relevant here as
+            // well
+            vec![String::from("c"), String::from("c"), String::from("c")],
+        ];
+        let negative_examples = [
+            vec![String::from("b"), String::from("a"), String::from("c")],
+            vec![
+                String::from("b"),
+                String::from("c"),
+                String::from("c"),
+                String::from("a"),
+            ],
+        ];
+
+        positive_examples.into_iter().for_each(|trace| {
+            assert!(Declare::mine_trace(&trace, &all_activities, Some(true))
+                .iter()
+                .contains(&Declare::Succession(String::from("a"), String::from("b"))))
+        });
+        negative_examples.into_iter().for_each(|trace| {
+            assert!(!Declare::mine_trace(&trace, &all_activities, Some(true))
+                .iter()
+                .contains(&Declare::Succession(String::from("a"), String::from("b"))))
+        });
+    }
 
     // #[test]
     // fn test_declare_alternate_succession() {
