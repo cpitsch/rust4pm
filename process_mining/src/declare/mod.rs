@@ -248,13 +248,11 @@ impl Declare {
     /// - [`AlternateSuccession`]
     /// - [`NotChainSuccession`]
     /// - [`NotSuccession`]
-    /// - [`NotCoExistence`]
     ///
     /// [`AlternatePrecedence`]: Declare::AlternatePrecedence
     /// [`AlternateSuccession`]: Declare::AlternateSuccession
     /// [`NotChainSuccession`]: Declare::NotChainSuccession
     /// [`NotSuccession`]: Declare::NotSuccession
-    /// [`NotCoExistence`]: Declare::NotCoExistence
     pub fn mine_trace(
         trace: &[String],
         all_activities: &HashSet<String>,
@@ -398,30 +396,43 @@ impl Declare {
             .cloned()
             .collect();
 
-        // INFO: "trivial by omission"
-        if mine_trivial_by_omission {
-            constraints.extend(unseen_activities.iter().flat_map(|a| {
-                all_activities.iter().flat_map(|b| {
+        constraints.extend(unseen_activities.iter().flat_map(|a| {
+            all_activities.iter().flat_map(|b| {
+                let b_is_seen = knowledge.seen_activities.contains(b);
+                let mut constraints = Vec::new();
+                if mine_trivial_by_omission {
                     // If a doesn't occur, then these statements trivially hold.
                     // RespondedExistence also holds if both activities are _not_ in the trace.
-                    let constraints = [
+                    constraints.extend([
                         Self::RespondedExistence(a.clone(), b.clone()),
                         Self::Response(a.clone(), b.clone()),
                         Self::AlternateResponse(a.clone(), b.clone()),
                         Self::ChainResponse(a.clone(), b.clone()),
                         Self::Precedence(b.clone(), a.clone()),
-                    ];
+                    ]);
 
                     // (Chain) Succession only _trivially_ holds if both activities didn't occur
-                    let b_is_unseen = !knowledge.seen_activities.contains(b);
 
-                    constraints
-                        .into_iter()
-                        .chain(b_is_unseen.then(|| Self::Succession(a.clone(), b.clone())))
-                        .chain(b_is_unseen.then(|| Self::ChainSuccession(a.clone(), b.clone())))
-                })
-            }));
-        }
+                    if !b_is_seen {
+                        constraints.extend([
+                            Self::Succession(a.clone(), b.clone()),
+                            Self::ChainSuccession(a.clone(), b.clone()),
+                        ]);
+                    }
+                }
+                let a = a.clone();
+                let b = b.clone();
+                if a != b {
+                    constraints.extend([
+                        Self::NotCoExistence(a.clone(), b.clone()),
+                        Self::NotCoExistence(b, a),
+                    ])
+                } else {
+                    constraints.extend([Self::NotCoExistence(a, b)])
+                }
+                constraints
+            })
+        }));
 
         constraints
     }
@@ -1151,59 +1162,59 @@ mod tests {
         });
     }
 
-    // #[test]
-    // fn test_declare_not_co_existence() {
-    //     let all_activities =
-    //         HashSet::from([String::from("a"), String::from("b"), String::from("c")]);
-    //     let positive_examples = [
-    //         vec![
-    //             String::from("c"),
-    //             String::from("c"),
-    //             String::from("c"),
-    //             String::from("b"),
-    //             String::from("b"),
-    //             String::from("b"),
-    //         ],
-    //         vec![
-    //             String::from("c"),
-    //             String::from("c"),
-    //             String::from("a"),
-    //             String::from("c"),
-    //         ],
-    //     ];
-    //     let negative_examples = [
-    //         vec![
-    //             String::from("a"),
-    //             String::from("c"),
-    //             String::from("c"),
-    //             String::from("b"),
-    //             String::from("b"),
-    //         ],
-    //         vec![
-    //             String::from("b"),
-    //             String::from("c"),
-    //             String::from("a"),
-    //             String::from("c"),
-    //         ],
-    //     ];
-    //
-    //     positive_examples.into_iter().for_each(|trace| {
-    //         assert!(Declare::mine_trace(&trace, &all_activities, Some(true))
-    //             .iter()
-    //             .contains(&Declare::NotCoExistence(
-    //                 String::from("a"),
-    //                 String::from("b")
-    //             )))
-    //     });
-    //     negative_examples.into_iter().for_each(|trace| {
-    //         assert!(!Declare::mine_trace(&trace, &all_activities, Some(true))
-    //             .iter()
-    //             .contains(&Declare::NotCoExistence(
-    //                 String::from("a"),
-    //                 String::from("b")
-    //             )))
-    //     });
-    // }
+    #[test]
+    fn test_declare_not_co_existence() {
+        let all_activities =
+            HashSet::from([String::from("a"), String::from("b"), String::from("c")]);
+        let positive_examples = [
+            vec![
+                String::from("c"),
+                String::from("c"),
+                String::from("c"),
+                String::from("b"),
+                String::from("b"),
+                String::from("b"),
+            ],
+            vec![
+                String::from("c"),
+                String::from("c"),
+                String::from("a"),
+                String::from("c"),
+            ],
+        ];
+        let negative_examples = [
+            vec![
+                String::from("a"),
+                String::from("c"),
+                String::from("c"),
+                String::from("b"),
+                String::from("b"),
+            ],
+            vec![
+                String::from("b"),
+                String::from("c"),
+                String::from("a"),
+                String::from("c"),
+            ],
+        ];
+
+        positive_examples.into_iter().for_each(|trace| {
+            assert!(Declare::mine_trace(&trace, &all_activities, Some(true))
+                .iter()
+                .contains(&Declare::NotCoExistence(
+                    String::from("a"),
+                    String::from("b")
+                )))
+        });
+        negative_examples.into_iter().for_each(|trace| {
+            assert!(!Declare::mine_trace(&trace, &all_activities, Some(true))
+                .iter()
+                .contains(&Declare::NotCoExistence(
+                    String::from("a"),
+                    String::from("b")
+                )))
+        });
+    }
 
     // #[test]
     // fn test_declare_not_succession() {
