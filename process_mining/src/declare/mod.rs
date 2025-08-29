@@ -246,14 +246,12 @@ impl Declare {
     ///
     /// - [`AlternatePrecedence`]
     /// - [`AlternateSuccession`]
-    /// - [`ChainSuccession`]
     /// - [`NotChainSuccession`]
     /// - [`NotSuccession`]
     /// - [`NotCoExistence`]
     ///
     /// [`AlternatePrecedence`]: Declare::AlternatePrecedence
     /// [`AlternateSuccession`]: Declare::AlternateSuccession
-    /// [`ChainSuccession`]: Declare::ChainSuccession
     /// [`NotChainSuccession`]: Declare::NotChainSuccession
     /// [`NotSuccession`]: Declare::NotSuccession
     /// [`NotCoExistence`]: Declare::NotCoExistence
@@ -269,22 +267,19 @@ impl Declare {
         if let Some(act) = knowledge.first_activity {
             constraints.push(Self::Init(act));
         }
-        if let Some(act) = knowledge.last_activity {
-            constraints.push(Self::End(act));
+        if let Some(ref act) = knowledge.last_activity {
+            constraints.push(Self::End(act.clone()));
         }
 
-        knowledge
-            .activity_counts
-            .into_iter()
-            .for_each(|(act, count)| {
-                if count > 0 {
-                    constraints.push(Self::AtLeastOne(act.clone()));
-                }
-                if count <= 1 {
-                    // INFO: Potentially "trivial by omission" if count is 0
-                    constraints.push(Self::AtMostOne(act.clone()))
-                }
-            });
+        knowledge.activity_counts.iter().for_each(|(act, count)| {
+            if *count > 0 {
+                constraints.push(Self::AtLeastOne(act.clone()));
+            }
+            if *count <= 1 {
+                // INFO: Potentially could be considered "trivial by omission" if count is 0
+                constraints.push(Self::AtMostOne(act.clone()));
+            }
+        });
 
         constraints.extend(knowledge.seen_activities.iter().flat_map(|a| {
             knowledge.seen_activities.iter().flat_map(|b| {
@@ -339,12 +334,32 @@ impl Declare {
                 }),
         );
 
-        constraints.extend(knowledge.directly_follows.iter().filter_map(|(k, values)| {
-            (values.len() == 1).then_some(Self::ChainResponse(
-                k.clone(),
-                values.iter().next().unwrap().clone(),
-            ))
-        }));
+        constraints.extend(
+            knowledge
+                .directly_follows
+                .iter()
+                .flat_map(|(k, values)| {
+                    if values.len() == 1 {
+                        let follower = values.iter().next().unwrap();
+
+                        Some(
+                            std::iter::once(Self::ChainResponse(k.clone(), follower.clone()))
+                                .chain(
+                                    (knowledge.activity_counts.get(k)
+                                        == knowledge.activity_counts.get(follower)
+                                        && knowledge
+                                            .last_activity
+                                            .as_ref()
+                                            .is_some_and(|act| act != k))
+                                    .then(|| Self::ChainSuccession(k.clone(), follower.clone())),
+                                ),
+                        )
+                    } else {
+                        None
+                    }
+                })
+                .flatten(),
+        );
 
         // Precedence
         constraints.extend(knowledge.first_eventually_precedes.iter().flat_map(
@@ -397,11 +412,13 @@ impl Declare {
                         Self::Precedence(b.clone(), a.clone()),
                     ];
 
-                    // Succession only _trivially_ holds if both activities didn't occur
-                    let succession = (!knowledge.seen_activities.contains(b))
-                        .then(|| Self::Succession(a.clone(), b.clone()));
+                    // (Chain) Succession only _trivially_ holds if both activities didn't occur
+                    let b_is_unseen = !knowledge.seen_activities.contains(b);
 
-                    constraints.into_iter().chain(succession)
+                    constraints
+                        .into_iter()
+                        .chain(b_is_unseen.then(|| Self::Succession(a.clone(), b.clone())))
+                        .chain(b_is_unseen.then(|| Self::ChainSuccession(a.clone(), b.clone())))
                 })
             }));
         }
@@ -1087,52 +1104,52 @@ mod tests {
     //     });
     // }
 
-    // #[test]
-    // fn test_declare_chain_succession() {
-    //     let all_activities =
-    //         HashSet::from([String::from("a"), String::from("b"), String::from("c")]);
-    //     let positive_examples = [
-    //         vec![
-    //             String::from("c"),
-    //             String::from("a"),
-    //             String::from("b"),
-    //             String::from("a"),
-    //             String::from("b"),
-    //         ],
-    //         vec![String::from("c"), String::from("c"), String::from("c")],
-    //     ];
-    //     let negative_examples = [
-    //         vec![
-    //             String::from("c"),
-    //             String::from("a"),
-    //             String::from("c"),
-    //             String::from("b"),
-    //         ],
-    //         vec![
-    //             String::from("c"),
-    //             String::from("b"),
-    //             String::from("a"),
-    //             String::from("c"),
-    //         ],
-    //     ];
-    //
-    //     positive_examples.into_iter().for_each(|trace| {
-    //         assert!(Declare::mine_trace(&trace, &all_activities, Some(true))
-    //             .iter()
-    //             .contains(&Declare::ChainSuccession(
-    //                 String::from("a"),
-    //                 String::from("b")
-    //             )))
-    //     });
-    //     negative_examples.into_iter().for_each(|trace| {
-    //         assert!(!Declare::mine_trace(&trace, &all_activities, Some(true))
-    //             .iter()
-    //             .contains(&Declare::ChainSuccession(
-    //                 String::from("a"),
-    //                 String::from("b")
-    //             )))
-    //     });
-    // }
+    #[test]
+    fn test_declare_chain_succession() {
+        let all_activities =
+            HashSet::from([String::from("a"), String::from("b"), String::from("c")]);
+        let positive_examples = [
+            vec![
+                String::from("c"),
+                String::from("a"),
+                String::from("b"),
+                String::from("a"),
+                String::from("b"),
+            ],
+            vec![String::from("c"), String::from("c"), String::from("c")],
+        ];
+        let negative_examples = [
+            vec![
+                String::from("c"),
+                String::from("a"),
+                String::from("c"),
+                String::from("b"),
+            ],
+            vec![
+                String::from("c"),
+                String::from("b"),
+                String::from("a"),
+                String::from("c"),
+            ],
+        ];
+
+        positive_examples.into_iter().for_each(|trace| {
+            assert!(Declare::mine_trace(&trace, &all_activities, Some(true))
+                .iter()
+                .contains(&Declare::ChainSuccession(
+                    String::from("a"),
+                    String::from("b")
+                )))
+        });
+        negative_examples.into_iter().for_each(|trace| {
+            assert!(!Declare::mine_trace(&trace, &all_activities, Some(true))
+                .iter()
+                .contains(&Declare::ChainSuccession(
+                    String::from("a"),
+                    String::from("b")
+                )))
+        });
+    }
 
     // #[test]
     // fn test_declare_not_co_existence() {
